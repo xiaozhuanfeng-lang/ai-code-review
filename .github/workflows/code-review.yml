@@ -1,12 +1,13 @@
 name: AI Code Review
-
 on:
   pull_request:
     types: [opened, synchronize]
-
 permissions:
   contents: read
   pull-requests: write
+
+env:
+  REVIEW_SCRIPT: review_action.py
 
 jobs:
   review:
@@ -17,56 +18,17 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: AI Review
+      - name: Run AI Review
+        id: review
         env:
           OPENROUTER_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
-          python3 -c "
-import os, json, urllib.request
-
-title = os.environ.get('PR_TITLE', '')
-body = os.environ.get('PR_BODY', '') or ''
-diff = open('diff.txt', 'w') if False else ''
-# Simpler: just fetch the diff from the PR
-url = os.environ.get('GITHUB_REF', '')
-key = os.environ.get('OPENROUTER_KEY', '')
-if not key:
-    print('Missing API key')
-    exit(1)
-
-prompt = 'Review this PR: ' + title + '\n\n' + body + '\n\nCheck code quality.'
-payload = json.dumps({
-    'model': 'nvidia/nemotron-3-super-120b-a12b:free',
-    'messages': [{'role': 'user', 'content': prompt}],
-    'max_tokens': 500,
-    'temperature': 0.2
-}).encode()
-
-req = urllib.request.Request(
-    'https://openrouter.ai/api/v1/chat/completions',
-    data=payload,
-    headers={
-        'Authorization': f'Bearer {key}',
-        'Content-Type': 'application/json',
-        'X-Title': 'AI-Code-Review'
-    }
-)
-resp = json.loads(urllib.request.urlopen(req, timeout=60).read())
-review = resp['choices'][0]['message']['content']
-with open('/tmp/review.txt', 'w') as f:
-    f.write(review)
-print(review[:100])
-"
-        shell: bash
+          python3 review_action.py
+          echo "done"
 
       - name: Post Comment
         env:
           GH_TOKEN: ${{ github.token }}
+          PR_NUM: ${{ github.event.number }}
         run: |
-          REVIEW=$(cat /tmp/review.txt)
-          COMMENT="## ð¤ AI Code Review\n\n${REVIEW//$'\n'/\\n}\n\n---\n*Powered by AI Code Review Bot*"
-          
-          gh pr comment ${{ github.event.number }} --body "$COMMENT"
-        shell: bash
+          gh pr comment $PR_NUM --body "$(cat /tmp/review_output.txt)"
