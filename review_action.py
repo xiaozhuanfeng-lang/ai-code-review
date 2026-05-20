@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """AI Code Review - runs inside GitHub Actions"""
 
-import os, json, urllib.request
+import os, json, urllib.request, subprocess
 
 key = os.environ.get('OPENROUTER_KEY', '')
 if not key:
@@ -11,23 +11,19 @@ if not key:
         f.write('ð´ ' + msg)
     exit(1)
 
-# Read PR info from environment
 title = os.environ.get('PR_TITLE', 'PR Review')
 body = os.environ.get('PR_BODY', '')
+base_ref = os.environ.get('BASE_REF', 'main')
 
-# Read diff file if it exists
-diff_path = '/github/workspace/diff.txt'
-if os.path.exists(diff_path):
-    with open(diff_path) as f:
-        diff = f.read()[:6000]
-else:
-    # Try to generate diff from git
-    import subprocess
+# Get diff using git
+try:
     result = subprocess.run(
-        ['bash', '-c', 'git fetch origin ${{ github.event.pull_request.base.ref }} --depth=1 2>/dev/null; git diff origin/${{ github.event.pull_request.base.ref }}...HEAD || echo ""'],
+        ['bash', '-c', f'git fetch origin {base_ref} --depth=1 2>/dev/null; git diff origin/{base_ref}...HEAD 2>/dev/null || echo ""'],
         capture_output=True, text=True, timeout=30
     )
-    diff = result.stdout[:6000] if result.stdout else '(no diff available)'
+    diff = result.stdout[:6000] if result.stdout and result.stdout.strip() else '(no diff available)'
+except Exception as e:
+    diff = f'(failed to get diff: {e})'
 
 prompt = f"""Review this Pull Request:
 
@@ -40,7 +36,7 @@ Code changes:
 ```
 
 Check: 1) bugs/performance 2) security 3) best practices 4) maintainability.
-Format: one issue per line with 'â ï¸' or 'ð´'. If good, 'â LGTM'. Keep concise."""
+Format: one issue per line with 'â ï¸' or 'ð´'. If good, just say 'â LGTM'. Keep concise."""
 
 payload = json.dumps({
     "model": "nvidia/nemotron-3-super-120b-a12b:free",
@@ -67,5 +63,5 @@ except Exception as e:
 with open('/tmp/review_output.txt', 'w') as f:
     f.write(review)
 
-print("Review complete:")
+print("Review result (first 200 chars):")
 print(review[:200])
