@@ -15,13 +15,22 @@ title = os.environ.get('PR_TITLE', 'PR Review')
 body = os.environ.get('PR_BODY', '')
 base_ref = os.environ.get('BASE_REF', 'main')
 
-# Get diff using git
+# Get diff using git (use GH_TOKEN for auth)
+import os
 try:
+    token = os.environ.get('GH_TOKEN', '')
+    repo_url = f'https://oauth2:{token}@github.com/{os.environ.get("GITHUB_REPOSITORY", "")}.git'
     result = subprocess.run(
-        ['bash', '-c', f'git fetch origin {base_ref} --depth=1 2>/dev/null; git diff origin/{base_ref}...HEAD 2>/dev/null || echo ""'],
+        ['bash', '-c', f'git remote set-url origin {repo_url} 2>/dev/null; git fetch origin {base_ref} --depth=1 2>&1; git diff origin/{base_ref}...HEAD 2>/dev/null || echo "(no diff)"'],
         capture_output=True, text=True, timeout=30
     )
-    diff = result.stdout[:6000] if result.stdout and result.stdout.strip() else '(no diff available)'
+    diff = result.stdout.strip()
+    if not diff or diff == '(no diff)':
+        diff = '(no diff available)'
+    else:
+        # Filter out git fetch stderr noise
+        lines = [l for l in diff.split('\n') if not l.startswith('From ') and not l.startswith(' *')]
+        diff = '\n'.join(lines)[:6000]
 except Exception as e:
     diff = f'(failed to get diff: {e})'
 
